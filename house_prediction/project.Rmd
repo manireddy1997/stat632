@@ -1,0 +1,144 @@
+---
+title: "Project"
+author: "Manikanta Reddy Kallam"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+pacman::p_load(ggplot2,MASS,car,pROC,caTools,sqldf,lmtest,class,randomForest,xgboost,ggmap)
+```
+
+## Data Loading and Statistical analysis
+
+```{r}
+
+data_df <- read.csv("./data/California_Houses.csv")
+par(mfrow=c(2,3))
+plot(Median_House_Value ~ .,data = data_df)
+
+
+```
+
+## Statistical Ananlysis
+
+```{r}
+# adding another column to show closest distance to major city
+data_df <- cbind(data_df,c(sqldf("select min(Distance_to_LA, Distance_to_SanDiego, Distance_to_SanJose, Distance_to_SanFrancisco) as Closest_Distance from data_df")))
+
+summary(data_df)
+
+# plot
+
+```
+
+## MLR Model
+
+```{r}
+#split train and test
+set.seed(123)
+train_flag <- sample.split(data_df,SplitRatio = 0.75)
+train <- subset(data_df,train_flag==TRUE)
+test <- subset(data_df,train_flag==FALSE)
+
+#model fitting
+lm1 <- lm(Median_House_Value ~ .,data = train)
+summary(lm1)
+
+par(mfrow=c(1,2))
+# Assumptions
+qqnorm(resid(lm_preds))
+qqline(resid(lm_transformed))
+
+#constat variance test
+plot(predict(lm_preds),rstandard(lm_preds),xlab="Fitted values",ylab = "Standardized Residuals")
+abline(h=0)
+bptest(lm_transformed)
+
+#Transformation based on BoxCox
+boxCox(lm1)
+summary(powerTransform(lm1))
+
+lm_transformed <- lm((Median_House_Value^0.15) ~ .,data = train)
+summary(lm_transformed)
+
+# removing insignificant column
+lm_preds <- lm((Median_House_Value^0.15) ~ Median_Income+Median_Age+Tot_Rooms+Tot_Bedrooms+Population+Households+Latitude+Longitude+Distance_to_coast+Distance_to_LA+Distance_to_SanJose+Distance_to_SanFrancisco ,data = train)
+summary(lm_preds)
+
+#AIC for predictor selector
+lm_AIC <- step(lm_preds)
+lm_AIC
+
+# VIF
+vcov(lm_preds)
+mlr.vif <- vif(lm_preds)
+mlr_vif <- data.frame(Columns=names(mlr.vif),vif_value=mlr.vif)
+sqldf("select * from mlr_vif where vif_value<=10")
+
+
+#Make predictions
+lm_preds.probs <- predict(lm_preds,newdata = test[-1])
+lm_preds.probs
+
+#confusion_matrix
+lm_preds.cm <- table(prediction=lm_preds.probs,actual=test$Median_House_Value)
+addmargins(lm_preds.cm)
+cm<-data.frame(lm_preds.cm)
+
+#MISC/test
+plot(lm_transformed)
+qqPlot(lm_preds)
+sqldf("select count(*) from data_df where Tot_Bedrooms <= 500")
+
+# ROC CURVE
+
+rc <- roc(Median_House_Value ~ predict(lm_preds),data = train)
+plot(rc,print.thres="best")
+auc(rc)
+```
+
+## KNN MODEL
+
+```{r}
+
+knn_train <- sqldf("select Median_House_Value,Median_Income, Median_Age, Tot_Rooms, Distance_to_coast, Closest_Distance from train")
+knn_test <- sqldf("select Median_House_Value,Median_Income, Median_Age, Tot_Rooms, Distance_to_coast, Closest_Distance from test")
+
+train_scale <- scale(knn_train)
+test_scale <- scale(knn_test)
+
+c_knn <- knn(train = train_scale,test = test_scale,cl=knn_train$Median_House_Value,k=6)
+c_knn
+
+```
+
+## Random Forest
+
+```{r}
+set.seed(123)
+rf_classifier <- randomForest(x=train[-1],y=train$Median_House_Value,ntree = 500)
+rf_predict <- predict(rf_classifier,newdata = test[-1])
+
+rf_cm <- data.frame(predicted_value=rf_predict,actual_value=test$Median_House_Value)
+accuracy_matrix <- sqldf("select case 
+        when predicted_value >= (actual_value-(0.3*actual_value)) and predicted_value <= (actual_value+(0.3*actual_value)) then 1
+        else 0
+        end as flag
+      from rf_cm")
+accuracy <- sqldf("select count(*) as accuracy from accuracy_matrix where flag=1")/nrow(accuracy_matrix)
+accuracy
+
+```
+
+## XGBoost
+
+```{r}
+
+xgb_classifier <- xgboost(data=as.matrix(train[-1]),label = train$Median_House_Value,nrounds=100,objective = "reg:squarederror")
+xgb_predictions <- predict(xgb_classifier, as.matrix(test[-1]))
+
+xgb_predictions
+```
