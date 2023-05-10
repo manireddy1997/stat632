@@ -18,8 +18,6 @@ pacman::p_load(ggplot2,MASS,car,pROC,caTools,sqldf,lmtest,class,randomForest,xgb
 data_df <- read.csv("./data/California_Houses.csv")
 par(mfrow=c(2,3))
 plot(Median_House_Value ~ .,data = data_df)
-
-
 ```
 
 ## Statistical Ananlysis
@@ -48,14 +46,7 @@ lm1 <- lm(Median_House_Value ~ .,data = train)
 summary(lm1)
 
 par(mfrow=c(1,2))
-# Assumptions
-qqnorm(resid(lm_preds))
-qqline(resid(lm_transformed))
 
-#constat variance test
-plot(predict(lm_preds),rstandard(lm_preds),xlab="Fitted values",ylab = "Standardized Residuals")
-abline(h=0)
-bptest(lm_transformed)
 
 #Transformation based on BoxCox
 boxCox(lm1)
@@ -67,6 +58,15 @@ summary(lm_transformed)
 # removing insignificant column
 lm_preds <- lm((Median_House_Value^0.15) ~ Median_Income+Median_Age+Tot_Rooms+Tot_Bedrooms+Population+Households+Latitude+Longitude+Distance_to_coast+Distance_to_LA+Distance_to_SanJose+Distance_to_SanFrancisco ,data = train)
 summary(lm_preds)
+
+# Assumptions
+qqnorm(resid(lm_preds))
+qqline(resid(lm_transformed))
+
+#constat variance test
+plot(predict(lm_preds),rstandard(lm_preds),xlab="Fitted values",ylab = "Standardized Residuals")
+abline(h=0)
+bptest(lm_transformed)
 
 #AIC for predictor selector
 lm_AIC <- step(lm_preds)
@@ -81,11 +81,10 @@ sqldf("select * from mlr_vif where vif_value<=10")
 
 #Make predictions
 lm_preds.probs <- predict(lm_preds,newdata = test[-1])
-lm_preds.probs
 
 #confusion_matrix
 lm_preds.cm <- table(prediction=lm_preds.probs,actual=test$Median_House_Value)
-addmargins(lm_preds.cm)
+#addmargins(lm_preds.cm)
 cm<-data.frame(lm_preds.cm)
 
 #MISC/test
@@ -100,6 +99,8 @@ plot(rc,print.thres="best")
 auc(rc)
 ```
 
+$Median\_House\_Value = -6.731 + 0.1568*Median\_Income + 0.001538*Median\_Age - 1.136*10^{-5}*Tot\_Rooms + 4.408*10^{-4} * Tot\_Bedrooms - 1.63*10^{-4}*Population + 1.13*10^{-4}*Households - 7.775*10^{-2}*Latitude - 1.283*10^{-1}* Longitude -7.295*10^{-7}*Distance\_to\_LA + 8.592*10^{-7}*Distance\_to\_SanJose-9.687*10^{-7}*Distance\_to\_SanFrancisco -2.599 * 10^{-6}*Distance\_to\_Coast$
+
 ## KNN MODEL
 
 ```{r}
@@ -111,7 +112,6 @@ train_scale <- scale(knn_train)
 test_scale <- scale(knn_test)
 
 c_knn <- knn(train = train_scale,test = test_scale,cl=knn_train$Median_House_Value,k=6)
-c_knn
 
 ```
 
@@ -140,5 +140,4 @@ accuracy
 xgb_classifier <- xgboost(data=as.matrix(train[-1]),label = train$Median_House_Value,nrounds=100,objective = "reg:squarederror")
 xgb_predictions <- predict(xgb_classifier, as.matrix(test[-1]))
 
-xgb_predictions
 ```
